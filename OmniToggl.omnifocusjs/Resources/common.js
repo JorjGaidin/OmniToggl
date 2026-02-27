@@ -53,7 +53,8 @@
 			return 'Could not connect to Toggl. Check your internet connection.';
 		}
 		if (statusCode === 403) {
-			return 'Authentication failed. Check your API token.';
+			credentials.remove(CREDENTIAL_SERVICE);
+			return 'Authentication failed. Your API token has been cleared — try again to re-enter it.';
 		}
 		if (statusCode === 429) {
 			return 'Too many requests. Wait a moment and try again.';

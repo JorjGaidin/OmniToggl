@@ -9,6 +9,9 @@
 			createTogglProject,
 			getTogglProjects,
 			getAuthHeader,
+			getWorkspaceInfo,
+			resolveTogglTask,
+			extractSuffix,
 			classifyError,
 			resetTasks,
 			log,
@@ -54,9 +57,28 @@
 				projectName = source.name;
 			}
 
-			const toggleProject = (projects || []).find(
-				(p) => p.name.trim().toLowerCase() === projectName.trim().toLowerCase(),
+			// Project matching: exact → suffix-strip fuzzy → auto-create
+			const projectNameLower = projectName.trim().toLowerCase();
+			let toggleProject = (projects || []).find(
+				(p) => p.name.trim().toLowerCase() === projectNameLower,
 			);
+			if (!toggleProject) {
+				// Suffix-strip fuzzy: try OF project suffix against Toggl project names
+				const ofSuffix = extractSuffix(projectName);
+				if (ofSuffix) {
+					const ofSuffixLower = ofSuffix.toLowerCase();
+					const fuzzyMatches = (projects || []).filter((p) => {
+						const pLower = p.name.trim().toLowerCase();
+						if (pLower === ofSuffixLower) return true;
+						const pSuffix = extractSuffix(p.name);
+						return pSuffix && pSuffix.toLowerCase() === ofSuffixLower;
+					});
+					if (fuzzyMatches.length === 1) {
+						toggleProject = fuzzyMatches[0];
+					}
+					// Multiple matches → no ambiguous match, fall through to auto-create
+				}
+			}
 
 			const taskName = source.name;
 			let pid;
@@ -84,10 +106,26 @@
 				workspaceId = toggleProject.workspace_id;
 			}
 
+			// Task resolution: attach time entry to Toggl task (SAFE-01 gated)
+			let taskId = null;
+			if (pid != null && source instanceof Task) {
+				try {
+					const workspaceInfo = await getWorkspaceInfo(authHeader, workspaceId);
+					if (workspaceInfo.hasTasksFeature) {
+						taskId = await resolveTogglTask(authHeader, workspaceId, pid, source);
+						console.log('Resolved Toggl task ID:', taskId);
+					}
+				} catch (e) {
+					// TASK-04: Graceful fallback — timer starts without task_id
+					console.log('Task resolution failed, starting without task:', JSON.stringify(e));
+					taskId = null;
+				}
+			}
+
 			const taskTags = source.tags.map((t) => t.name);
 
 			try {
-				const r = await startTogglTimer(authHeader, {
+				const timeEntry = {
 					description: taskName,
 					created_with: 'omnifocus',
 					tags: taskTags,
@@ -95,7 +133,11 @@
 					workspace_id: workspaceId,
 					start: new Date().toISOString(),
 					duration: -1,
-				});
+				};
+				if (taskId != null) {
+					timeEntry.task_id = taskId;
+				}
+				const r = await startTogglTimer(authHeader, timeEntry);
 				const isTask = source instanceof Task;
 				if (isTask) {
 					source.name = TRACKING_NAME_PREFIX + source.name;

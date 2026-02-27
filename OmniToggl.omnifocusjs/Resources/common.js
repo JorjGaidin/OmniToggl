@@ -127,6 +127,113 @@
 		return Math.round(trackedSeconds / 1000 / 60);
 	}
 
+	// Strips a leading prefix up to the FIRST occurrence of a separator.
+	// Returns the trimmed remainder, or null if no separator found.
+	// Separators checked in order: ' - ', ': ', ' | '
+	function extractSuffix(name) {
+		const separators = [' - ', ': ', ' | '];
+		let earliest = -1;
+		let earliestLen = 0;
+		for (let i = 0; i < separators.length; i++) {
+			const idx = name.indexOf(separators[i]);
+			if (idx !== -1 && (earliest === -1 || idx < earliest)) {
+				earliest = idx;
+				earliestLen = separators[i].length;
+			}
+		}
+		if (earliest === -1) return null;
+		return name.slice(earliest + earliestLen).trim();
+	}
+
+	// Matches an OF task name against an array of Toggl task objects.
+	// Returns a single task ID (int) or null.
+	// Step 1: Exact match (case-insensitive). If exactly 1, return its id.
+	// Step 2: Suffix-strip fuzzy match. If exactly 1, return its id. Multiple = null (auto-create).
+	function matchTaskByName(tasks, ofName) {
+		const ofNameNorm = ofName.trim().toLowerCase();
+
+		// Step 1: Exact match
+		const exactMatches = tasks.filter(
+			(t) => t.name.trim().toLowerCase() === ofNameNorm
+		);
+		if (exactMatches.length === 1) return exactMatches[0].id;
+
+		// Step 2: Suffix-strip fuzzy match
+		const ofSuffix = extractSuffix(ofName);
+		if (!ofSuffix) return null;
+		const ofSuffixNorm = ofSuffix.toLowerCase();
+
+		const fuzzyMatches = tasks.filter((t) => {
+			const tNameNorm = t.name.trim().toLowerCase();
+			// Toggl name IS the suffix
+			if (tNameNorm === ofSuffixNorm) return true;
+			// Both have prefix — compare suffixes
+			const tSuffix = extractSuffix(t.name);
+			if (tSuffix && tSuffix.toLowerCase() === ofSuffixNorm) return true;
+			return false;
+		});
+		if (fuzzyMatches.length === 1) return fuzzyMatches[0].id;
+
+		// 0 or multiple matches — fall through to auto-create
+		return null;
+	}
+
+	// GET /workspaces/{workspaceId}/projects/{projectId}/tasks
+	// Returns array of Toggl task objects. Handles both plain array and wrapped responses.
+	async function getTogglTasksForProject(authHeader, workspaceId, projectId) {
+		const fetchRequest = new URL.FetchRequest();
+		fetchRequest.method = 'GET';
+		fetchRequest.headers = {
+			Authorization: authHeader,
+			'Content-Type': 'application/json',
+		};
+		fetchRequest.url = URL.fromString(
+			`${TOGGL_URL}/workspaces/${workspaceId}/projects/${projectId}/tasks`
+		);
+		const r = await fetchWithRetry(fetchRequest);
+		const parsed = JSON.parse(r.bodyString);
+		return Array.isArray(parsed) ? parsed : (parsed.data || []);
+	}
+
+	// GET /workspaces/{workspaceId}/projects/{projectId}/tasks/{taskId}
+	// Returns parsed task object. Propagates 404 errors — caller handles stale IDs.
+	async function getTogglTask(authHeader, workspaceId, projectId, taskId) {
+		const fetchRequest = new URL.FetchRequest();
+		fetchRequest.method = 'GET';
+		fetchRequest.headers = {
+			Authorization: authHeader,
+			'Content-Type': 'application/json',
+		};
+		fetchRequest.url = URL.fromString(
+			`${TOGGL_URL}/workspaces/${workspaceId}/projects/${projectId}/tasks/${taskId}`
+		);
+		const r = await fetchWithRetry(fetchRequest);
+		return JSON.parse(r.bodyString);
+	}
+
+	// POST /workspaces/{workspaceId}/projects/{projectId}/tasks
+	// Creates a Toggl task from an OF task. Syncs estimated duration if present.
+	// Returns the created task object with .id.
+	async function createTogglTask(authHeader, workspaceId, projectId, ofTask) {
+		const body = { name: ofTask.name, active: true };
+		const estimatedSeconds = ofMinutesToTogglEstimatedSeconds(ofTask.estimatedMinutes);
+		if (estimatedSeconds !== undefined) {
+			body.estimated_seconds = estimatedSeconds;
+		}
+		const fetchRequest = new URL.FetchRequest();
+		fetchRequest.bodyData = Data.fromString(JSON.stringify(body));
+		fetchRequest.method = 'POST';
+		fetchRequest.headers = {
+			Authorization: authHeader,
+			'Content-Type': 'application/json',
+		};
+		fetchRequest.url = URL.fromString(
+			`${TOGGL_URL}/workspaces/${workspaceId}/projects/${projectId}/tasks`
+		);
+		const r = await fetchWithRetry(fetchRequest);
+		return JSON.parse(r.bodyString);
+	}
+
 	const dependencyLibrary = new PlugIn.Library(new Version('1.0'));
 
 	dependencyLibrary.getAuthToken = async function getAuthToken() {
@@ -167,6 +274,8 @@
 	dependencyLibrary.writeTogglIdToNote = writeTogglIdToNote;
 	dependencyLibrary.ofMinutesToTogglEstimatedSeconds = ofMinutesToTogglEstimatedSeconds;
 	dependencyLibrary.togglTrackedSecondsToOfMinutes = togglTrackedSecondsToOfMinutes;
+	dependencyLibrary.extractSuffix = extractSuffix;
+	dependencyLibrary.matchTaskByName = matchTaskByName;
 
 	dependencyLibrary.startTogglTimer = async function startTogglTimer(
 		authHeader,

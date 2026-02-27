@@ -56,6 +56,9 @@
 			credentials.remove(CREDENTIAL_SERVICE);
 			return 'Authentication failed. Your API token has been cleared — try again to re-enter it.';
 		}
+		if (statusCode === 402) {
+			return 'Toggl rate limit reached. Wait a moment and try again.';
+		}
 		if (statusCode === 429) {
 			return 'Too many requests. Wait a moment and try again.';
 		}
@@ -226,6 +229,7 @@
 
 	let cachedWorkspaceInfo = null;
 
+	// Returns { id, name, hasTasksFeature } — cached after first fetch
 	dependencyLibrary.getWorkspaceInfo = async function getWorkspaceInfo(authHeader, workspaceId) {
 		if (cachedWorkspaceInfo && cachedWorkspaceInfo.id === parseInt(workspaceId)) {
 			return cachedWorkspaceInfo;
@@ -240,6 +244,12 @@
 		const r = await fetchWithRetry(fetchRequest);
 		const workspace = JSON.parse(r.bodyString);
 		console.log('Workspace info:', JSON.stringify(workspace, null, 2));
+		// Toggl plan tier mapping:
+		//   workspace.premium === true  → Starter plan (or higher) — tasks available
+		//   workspace.business_ws === true → Premium plan — additional features
+		// SAFE-01: All task API calls MUST check hasTasksFeature before making
+		// requests. Free plan 403s must never reach classifyError (which clears
+		// the auth token). The gate goes in the caller, not here.
 		const result = {
 			id: workspace.id,
 			name: workspace.name,

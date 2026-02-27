@@ -234,6 +234,47 @@
 		return JSON.parse(r.bodyString);
 	}
 
+	// Four-step Toggl task resolution chain:
+	// 1. Stored ID check (fast path via note registry)
+	// 2+3. Name matching (exact then suffix-strip fuzzy)
+	// 4. Auto-create (when no match found)
+	// Throws on failure — caller is responsible for graceful fallback.
+	async function resolveTogglTask(authHeader, workspaceId, projectId, ofTask) {
+		// Step 1: Stored ID check
+		const storedId = readTogglIdFromNote(ofTask);
+		if (storedId !== null) {
+			try {
+				await getTogglTask(authHeader, workspaceId, projectId, storedId);
+				// Stored ID is valid — fast path
+				return storedId;
+			} catch (err) {
+				if (err && err.type === 'http' && err.statusCode === 404) {
+					// Stale stored ID — Toggl task was deleted, re-resolve by name
+					console.log(
+						'Stored Toggl task ID ' + storedId + ' is stale (deleted), re-resolving'
+					);
+					// Fall through to Step 2 — writeTogglIdToNote will overwrite after resolution
+				} else {
+					// Unexpected error — propagate to caller
+					throw err;
+				}
+			}
+		}
+
+		// Steps 2 + 3: Name matching (exact then suffix-strip fuzzy)
+		const tasks = await getTogglTasksForProject(authHeader, workspaceId, projectId);
+		const matchedId = matchTaskByName(tasks, ofTask.name);
+		if (matchedId !== null) {
+			writeTogglIdToNote(ofTask, matchedId);
+			return matchedId;
+		}
+
+		// Step 4: Auto-create — no match found (or multiple ambiguous matches)
+		const created = await createTogglTask(authHeader, workspaceId, projectId, ofTask);
+		writeTogglIdToNote(ofTask, created.id);
+		return created.id;
+	}
+
 	const dependencyLibrary = new PlugIn.Library(new Version('1.0'));
 
 	dependencyLibrary.getAuthToken = async function getAuthToken() {
@@ -276,6 +317,8 @@
 	dependencyLibrary.togglTrackedSecondsToOfMinutes = togglTrackedSecondsToOfMinutes;
 	dependencyLibrary.extractSuffix = extractSuffix;
 	dependencyLibrary.matchTaskByName = matchTaskByName;
+	dependencyLibrary.createTogglTask = createTogglTask;
+	dependencyLibrary.resolveTogglTask = resolveTogglTask;
 
 	dependencyLibrary.startTogglTimer = async function startTogglTimer(
 		authHeader,

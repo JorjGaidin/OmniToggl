@@ -94,6 +94,39 @@
 		throw lastError;
 	}
 
+	// Note registry: stores Toggl task IDs in OF task notes as HTML comments
+	// Format: <!-- toggl-task:N --> — invisible in OF UI, survives sync
+	const TOGGL_ID_PATTERN = /<!-- toggl-task:(\d+) -->/;
+
+	function readTogglIdFromNote(ofTask) {
+		const note = ofTask.note || '';
+		const match = note.match(TOGGL_ID_PATTERN);
+		return match ? parseInt(match[1], 10) : null;
+	}
+
+	function writeTogglIdToNote(ofTask, togglTaskId) {
+		const marker = `<!-- toggl-task:${togglTaskId} -->`;
+		const existingNote = ofTask.note || '';
+		if (TOGGL_ID_PATTERN.test(existingNote)) {
+			// Replace existing marker in-place — preserves all surrounding content
+			ofTask.note = existingNote.replace(TOGGL_ID_PATTERN, marker);
+		} else {
+			// Append marker on new line — preserves all existing content
+			ofTask.note = existingNote.trim() ? `${existingNote.trim()}\n${marker}` : marker;
+		}
+	}
+
+	function ofMinutesToTogglEstimatedSeconds(estimatedMinutes) {
+		if (estimatedMinutes == null || estimatedMinutes <= 0) return undefined;
+		return Math.round(estimatedMinutes * 60);
+	}
+
+	// CRITICAL: Toggl's tracked_seconds field is in MILLISECONDS despite the name
+	// See: https://engineering.toggl.com/docs/api/tasks/
+	function togglTrackedSecondsToOfMinutes(trackedSeconds) {
+		return Math.round(trackedSeconds / 1000 / 60);
+	}
+
 	const dependencyLibrary = new PlugIn.Library(new Version('1.0'));
 
 	dependencyLibrary.getAuthToken = async function getAuthToken() {
@@ -130,6 +163,10 @@
 	};
 
 	dependencyLibrary.classifyError = classifyError;
+	dependencyLibrary.readTogglIdFromNote = readTogglIdFromNote;
+	dependencyLibrary.writeTogglIdToNote = writeTogglIdToNote;
+	dependencyLibrary.ofMinutesToTogglEstimatedSeconds = ofMinutesToTogglEstimatedSeconds;
+	dependencyLibrary.togglTrackedSecondsToOfMinutes = togglTrackedSecondsToOfMinutes;
 
 	dependencyLibrary.startTogglTimer = async function startTogglTimer(
 		authHeader,

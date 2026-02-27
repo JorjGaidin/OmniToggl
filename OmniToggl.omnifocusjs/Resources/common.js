@@ -223,6 +223,31 @@
 		return JSON.parse(r.bodyString);
 	};
 
+	let cachedWorkspaceInfo = null;
+
+	dependencyLibrary.getWorkspaceInfo = async function getWorkspaceInfo(authHeader, workspaceId) {
+		if (cachedWorkspaceInfo && cachedWorkspaceInfo.id === parseInt(workspaceId)) {
+			return cachedWorkspaceInfo;
+		}
+		const fetchRequest = new URL.FetchRequest();
+		fetchRequest.method = 'GET';
+		fetchRequest.headers = {
+			Authorization: authHeader,
+			'Content-Type': 'application/json',
+		};
+		fetchRequest.url = URL.fromString(TOGGL_URL + '/workspaces/' + workspaceId);
+		const r = await fetchWithRetry(fetchRequest);
+		const workspace = JSON.parse(r.bodyString);
+		console.log('Workspace info:', JSON.stringify(workspace, null, 2));
+		const result = {
+			id: workspace.id,
+			name: workspace.name,
+			hasTasksFeature: workspace.premium === true,
+		};
+		cachedWorkspaceInfo = result;
+		return result;
+	};
+
 	dependencyLibrary.log = async function log(message, title = 'Log') {
 		const a = new Alert(title, message);
 		a.addOption('OK');
@@ -246,6 +271,16 @@
 				task.name = task.name.replace(TRACKING_NAME_PREFIX, '');
 			}
 			task.removeTag(trackingTag);
+		});
+
+		// Safety net: remove tracking tag from any projects that may have it
+		// (projects should never get the tag, but clean up if they do)
+		const taggedProjects = flattenedProjects.filter((p) => p.tags.includes(trackingTag));
+		taggedProjects.forEach((project) => {
+			if (project.name.startsWith(TRACKING_NAME_PREFIX)) {
+				project.name = project.name.replace(TRACKING_NAME_PREFIX, '');
+			}
+			project.removeTag(trackingTag);
 		});
 	};
 

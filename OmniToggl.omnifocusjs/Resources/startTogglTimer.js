@@ -14,7 +14,10 @@
 			log,
 		} = this.common;
 
-		const trackingTag = flattenedTags.find((t) => t.name === TRACKING_TAG_NAME);
+		let trackingTag = flattenedTags.find((t) => t.name === TRACKING_TAG_NAME);
+		if (!trackingTag) {
+			trackingTag = new Tag(TRACKING_TAG_NAME);
+		}
 
 		try {
 			resetTasks();
@@ -93,7 +96,10 @@
 					start: new Date().toISOString(),
 					duration: -1,
 				});
-				source.name = TRACKING_NAME_PREFIX + source.name;
+				const isTask = source instanceof Task;
+				if (isTask) {
+					source.name = TRACKING_NAME_PREFIX + source.name;
+				}
 				source.addTag(trackingTag);
 				console.log('Timer started successfully', JSON.stringify(r));
 			} catch (e) {

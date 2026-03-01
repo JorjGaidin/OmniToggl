@@ -46,10 +46,12 @@
 
 			let workspaceId = results.default_workspace_id;
 			projects = results.projects;
+			console.log('Toggl projects count:', (projects || []).length);
 
 			const source = selection.tasks[0] || selection.projects[0];
+			const isTask = selection.tasks.length > 0;
 			let projectName = '';
-			if (source instanceof Task) {
+			if (isTask) {
 				if (source.containingProject) {
 					projectName = source.containingProject.name;
 				}
@@ -63,6 +65,7 @@
 				(p) => p.name.trim().toLowerCase() === projectNameLower,
 			);
 			if (!toggleProject) {
+				console.log('No exact project match for:', projectName, '— trying suffix-strip fuzzy match');
 				// Suffix-strip fuzzy: try OF project suffix against Toggl project names
 				const ofSuffix = extractSuffix(projectName);
 				if (ofSuffix) {
@@ -78,6 +81,11 @@
 					}
 					// Multiple matches → no ambiguous match, fall through to auto-create
 				}
+			}
+			if (!toggleProject) {
+				console.log('No fuzzy project match found, will auto-create:', projectName);
+			} else {
+				console.log('Fuzzy matched OF project to Toggl project:', toggleProject.name, '(id:', toggleProject.id + ')');
 			}
 
 			const taskName = source.name;
@@ -108,7 +116,7 @@
 
 			// Task resolution: attach time entry to Toggl task (SAFE-01 gated)
 			let taskId = null;
-			if (pid != null && source instanceof Task) {
+			if (pid != null && isTask) {
 				try {
 					const workspaceInfo = await getWorkspaceInfo(authHeader, workspaceId);
 					if (workspaceInfo.hasTasksFeature) {
@@ -138,7 +146,6 @@
 					timeEntry.task_id = taskId;
 				}
 				const r = await startTogglTimer(authHeader, timeEntry);
-				const isTask = source instanceof Task;
 				if (isTask) {
 					source.name = TRACKING_NAME_PREFIX + source.name;
 				}

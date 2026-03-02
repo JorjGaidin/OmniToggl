@@ -234,6 +234,32 @@
 		return JSON.parse(r.bodyString);
 	}
 
+	// PUT /workspaces/{workspaceId}/projects/{projectId}/tasks/{taskId}
+	// Updates mutable fields on an existing Toggl task. Returns updated task object.
+	async function updateTogglTask(authHeader, workspaceId, projectId, taskId, fields) {
+		const fetchRequest = new URL.FetchRequest();
+		fetchRequest.bodyData = Data.fromString(JSON.stringify(fields));
+		fetchRequest.method = 'PUT';
+		fetchRequest.headers = {
+			Authorization: authHeader,
+			'Content-Type': 'application/json',
+		};
+		fetchRequest.url = URL.fromString(
+			`${TOGGL_URL}/workspaces/${workspaceId}/projects/${projectId}/tasks/${taskId}`
+		);
+		const r = await fetchWithRetry(fetchRequest);
+		return JSON.parse(r.bodyString);
+	}
+
+	// Returns true if the OF task's estimated duration differs from the Toggl task's estimated_seconds.
+	// Both absent (OF no estimate + Toggl null/0) returns false — no change needed.
+	function estimateChanged(ofTask, togglEstimatedSeconds) {
+		const ofSeconds = ofMinutesToTogglEstimatedSeconds(ofTask.estimatedMinutes);
+		const togglAbsent = togglEstimatedSeconds == null || togglEstimatedSeconds === 0;
+		if (ofSeconds === undefined && togglAbsent) return false;
+		return ofSeconds !== togglEstimatedSeconds;
+	}
+
 	// Four-step Toggl task resolution chain:
 	// 1. Stored ID check (fast path via note registry)
 	// 2+3. Name matching (exact then suffix-strip fuzzy)

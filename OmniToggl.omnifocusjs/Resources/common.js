@@ -270,7 +270,18 @@
 		const storedId = readTogglIdFromNote(ofTask);
 		if (storedId !== null) {
 			try {
-				await getTogglTask(authHeader, workspaceId, projectId, storedId);
+				const togglTask = await getTogglTask(authHeader, workspaceId, projectId, storedId);
+				// Estimate sync: update if OF estimate differs from Toggl (non-fatal)
+				try {
+					if (estimateChanged(ofTask, togglTask.estimated_seconds)) {
+						const ofSeconds = ofMinutesToTogglEstimatedSeconds(ofTask.estimatedMinutes);
+						await updateTogglTask(authHeader, workspaceId, projectId, storedId, {
+							estimated_seconds: ofSeconds !== undefined ? ofSeconds : null,
+						});
+					}
+				} catch (updateErr) {
+					console.log('Estimate sync failed (non-fatal):', JSON.stringify(updateErr));
+				}
 				// Stored ID is valid — fast path
 				return storedId;
 			} catch (err) {
@@ -292,6 +303,18 @@
 		const matchedId = matchTaskByName(tasks, ofTask.name);
 		if (matchedId !== null) {
 			writeTogglIdToNote(ofTask, matchedId);
+			// Estimate sync: find matched task object for comparison (non-fatal)
+			try {
+				const matchedTask = tasks.find((t) => t.id === matchedId);
+				if (matchedTask && estimateChanged(ofTask, matchedTask.estimated_seconds)) {
+					const ofSeconds = ofMinutesToTogglEstimatedSeconds(ofTask.estimatedMinutes);
+					await updateTogglTask(authHeader, workspaceId, projectId, matchedId, {
+						estimated_seconds: ofSeconds !== undefined ? ofSeconds : null,
+					});
+				}
+			} catch (updateErr) {
+				console.log('Estimate sync failed (non-fatal):', JSON.stringify(updateErr));
+			}
 			return matchedId;
 		}
 

@@ -59,39 +59,44 @@
 				projectName = source.name;
 			}
 
-			// Project matching: exact → suffix-strip fuzzy → auto-create
-			const projectNameLower = projectName.trim().toLowerCase();
-			let toggleProject = (projects || []).find(
-				(p) => p.name.trim().toLowerCase() === projectNameLower,
-			);
-			if (!toggleProject) {
-				console.log('No exact project match for:', projectName, '— trying suffix-strip fuzzy match');
-				// Suffix-strip fuzzy: try OF project suffix against Toggl project names
-				const ofSuffix = extractSuffix(projectName);
-				if (ofSuffix) {
-					const ofSuffixLower = ofSuffix.toLowerCase();
-					const fuzzyMatches = (projects || []).filter((p) => {
-						const pLower = p.name.trim().toLowerCase();
-						if (pLower === ofSuffixLower) return true;
-						const pSuffix = extractSuffix(p.name);
-						return pSuffix && pSuffix.toLowerCase() === ofSuffixLower;
-					});
-					if (fuzzyMatches.length === 1) {
-						toggleProject = fuzzyMatches[0];
+			const taskName = source.name;
+			let pid = null;
+			let toggleProject = null;
+
+			if (!projectName) {
+				// No containing project — start timer without Toggl project
+				console.log('No OF project — timer will start without Toggl project');
+			} else {
+				// Project matching: exact → suffix-strip fuzzy → auto-create
+				const projectNameLower = projectName.trim().toLowerCase();
+				toggleProject = (projects || []).find(
+					(p) => p.name.trim().toLowerCase() === projectNameLower,
+				);
+				if (!toggleProject) {
+					console.log('No exact project match for:', projectName, '— trying suffix-strip fuzzy match');
+					const ofSuffix = extractSuffix(projectName);
+					if (ofSuffix) {
+						const ofSuffixLower = ofSuffix.toLowerCase();
+						const fuzzyMatches = (projects || []).filter((p) => {
+							const pLower = p.name.trim().toLowerCase();
+							if (pLower === ofSuffixLower) return true;
+							const pSuffix = extractSuffix(p.name);
+							return pSuffix && pSuffix.toLowerCase() === ofSuffixLower;
+						});
+						if (fuzzyMatches.length === 1) {
+							toggleProject = fuzzyMatches[0];
+						}
 					}
-					// Multiple matches → no ambiguous match, fall through to auto-create
+				}
+				if (!toggleProject) {
+					console.log('No fuzzy project match found, will auto-create:', projectName);
+				} else {
+					console.log('Fuzzy matched OF project to Toggl project:', toggleProject.name, '(id:', toggleProject.id + ')');
 				}
 			}
-			if (!toggleProject) {
-				console.log('No fuzzy project match found, will auto-create:', projectName);
-			} else {
-				console.log('Fuzzy matched OF project to Toggl project:', toggleProject.name, '(id:', toggleProject.id + ')');
-			}
 
-			const taskName = source.name;
-			let pid;
 			if (!projectName) {
-				pid = null;
+				// pid stays null
 			} else if (!toggleProject) {
 				console.log(`project not found creating new ${projectName} project`);
 				try {
@@ -137,11 +142,13 @@
 					description: taskName,
 					created_with: 'omnifocus',
 					tags: taskTags,
-					project_id: pid,
 					workspace_id: workspaceId,
 					start: new Date().toISOString(),
 					duration: -1,
 				};
+				if (pid != null) {
+					timeEntry.project_id = pid;
+				}
 				if (taskId != null) {
 					timeEntry.task_id = taskId;
 				}

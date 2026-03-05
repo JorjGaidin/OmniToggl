@@ -107,13 +107,28 @@
 	function writeTogglIdToNote(ofTask, togglTaskId) {
 		const marker = `<!-- toggl-task:${togglTaskId} -->`;
 		const existingNote = ofTask.note || '';
-		if (TOGGL_ID_PATTERN.test(existingNote)) {
-			// Replace existing marker in-place — preserves all surrounding content
-			ofTask.note = existingNote.replace(TOGGL_ID_PATTERN, marker);
-		} else {
-			// Append marker on new line — preserves all existing content
-			ofTask.note = existingNote.trim() ? `${existingNote.trim()}\n${marker}` : marker;
-		}
+		// Same ID already present — no-op
+		if (existingNote.includes(marker)) return;
+		// Remove ALL existing markers (handles duplicates), then append new one
+		const cleaned = existingNote.replace(/<!-- toggl-task:\d+ -->/g, '').replace(/\n{2,}$/g, '').trim();
+		ofTask.note = cleaned ? `${cleaned}\n${marker}` : marker;
+	}
+
+	// Project registry: stores Toggl project IDs in OF project notes as HTML comments
+	const TOGGL_PROJECT_ID_PATTERN = /<!-- toggl-project:(\d+) -->/;
+
+	function readTogglProjectIdFromNote(ofProject) {
+		const note = ofProject.note || '';
+		const match = note.match(TOGGL_PROJECT_ID_PATTERN);
+		return match ? parseInt(match[1], 10) : null;
+	}
+
+	function writeTogglProjectIdToNote(ofProject, togglProjectId) {
+		const marker = `<!-- toggl-project:${togglProjectId} -->`;
+		const existingNote = ofProject.note || '';
+		if (existingNote.includes(marker)) return;
+		const cleaned = existingNote.replace(/<!-- toggl-project:\d+ -->/g, '').replace(/\n{2,}$/g, '').trim();
+		ofProject.note = cleaned ? `${cleaned}\n${marker}` : marker;
 	}
 
 	function ofMinutesToTogglEstimatedSeconds(estimatedMinutes) {
@@ -362,6 +377,8 @@
 	dependencyLibrary.classifyError = classifyError;
 	dependencyLibrary.readTogglIdFromNote = readTogglIdFromNote;
 	dependencyLibrary.writeTogglIdToNote = writeTogglIdToNote;
+	dependencyLibrary.readTogglProjectIdFromNote = readTogglProjectIdFromNote;
+	dependencyLibrary.writeTogglProjectIdToNote = writeTogglProjectIdToNote;
 	dependencyLibrary.ofMinutesToTogglEstimatedSeconds = ofMinutesToTogglEstimatedSeconds;
 	dependencyLibrary.togglTrackedSecondsToOfMinutes = togglTrackedSecondsToOfMinutes;
 	dependencyLibrary.extractSuffix = extractSuffix;

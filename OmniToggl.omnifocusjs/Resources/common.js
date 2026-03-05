@@ -314,7 +314,8 @@
 				} catch (updateErr) {
 					console.log('Estimate sync failed (non-fatal):', JSON.stringify(updateErr));
 				}
-				// Stored ID is valid — fast path
+				// Stored ID is valid — migrate to current marker format if needed
+				writeTogglIdToNote(ofTask, storedId);
 				return storedId;
 			} catch (err) {
 				if (err && err.type === 'http' && err.statusCode === 404) {

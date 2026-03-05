@@ -11,6 +11,8 @@
 			getAuthHeader,
 			getWorkspaceInfo,
 			resolveTogglTask,
+			readTogglProjectIdFromNote,
+			writeTogglProjectIdToNote,
 			extractSuffix,
 			classifyError,
 			resetTasks,
@@ -62,36 +64,57 @@
 			const taskName = source.name;
 			let pid = null;
 			let toggleProject = null;
+			const ofProject = isTask ? source.containingProject : source;
 
 			if (!projectName) {
 				// No containing project — start timer without Toggl project
 				console.log('No OF project — timer will start without Toggl project');
 			} else {
-				// Project matching: exact → suffix-strip fuzzy → auto-create
-				const projectNameLower = projectName.trim().toLowerCase();
-				toggleProject = (projects || []).find(
-					(p) => p.name.trim().toLowerCase() === projectNameLower,
-				);
-				if (!toggleProject) {
-					console.log('No exact project match for:', projectName, '— trying suffix-strip fuzzy match');
-					const ofSuffix = extractSuffix(projectName);
-					if (ofSuffix) {
-						const ofSuffixLower = ofSuffix.toLowerCase();
-						const fuzzyMatches = (projects || []).filter((p) => {
-							const pLower = p.name.trim().toLowerCase();
-							if (pLower === ofSuffixLower) return true;
-							const pSuffix = extractSuffix(p.name);
-							return pSuffix && pSuffix.toLowerCase() === ofSuffixLower;
-						});
-						if (fuzzyMatches.length === 1) {
-							toggleProject = fuzzyMatches[0];
-						}
+				// Project matching: stored ID → exact name → suffix-strip fuzzy → auto-create
+				let storedProjectId = null;
+				if (ofProject && ofProject.note !== undefined) {
+					storedProjectId = readTogglProjectIdFromNote(ofProject);
+				}
+
+				if (storedProjectId !== null) {
+					// Fast path: verify stored project ID is still valid
+					const storedMatch = (projects || []).find((p) => p.id === storedProjectId);
+					if (storedMatch) {
+						toggleProject = storedMatch;
+						console.log('Matched OF project to Toggl project via stored ID:', storedMatch.name, '(id:', storedMatch.id + ')');
+					} else {
+						console.log('Stored Toggl project ID', storedProjectId, 'not found in project list — falling back to name match');
+						storedProjectId = null;
 					}
 				}
+
 				if (!toggleProject) {
-					console.log('No fuzzy project match found, will auto-create:', projectName);
-				} else {
-					console.log('Fuzzy matched OF project to Toggl project:', toggleProject.name, '(id:', toggleProject.id + ')');
+					// Name matching: exact → suffix-strip fuzzy
+					const projectNameLower = projectName.trim().toLowerCase();
+					toggleProject = (projects || []).find(
+						(p) => p.name.trim().toLowerCase() === projectNameLower,
+					);
+					if (!toggleProject) {
+						console.log('No exact project match for:', projectName, '— trying suffix-strip fuzzy match');
+						const ofSuffix = extractSuffix(projectName);
+						if (ofSuffix) {
+							const ofSuffixLower = ofSuffix.toLowerCase();
+							const fuzzyMatches = (projects || []).filter((p) => {
+								const pLower = p.name.trim().toLowerCase();
+								if (pLower === ofSuffixLower) return true;
+								const pSuffix = extractSuffix(p.name);
+								return pSuffix && pSuffix.toLowerCase() === ofSuffixLower;
+							});
+							if (fuzzyMatches.length === 1) {
+								toggleProject = fuzzyMatches[0];
+							}
+						}
+					}
+					if (!toggleProject) {
+						console.log('No fuzzy project match found, will auto-create:', projectName);
+					} else {
+						console.log('Fuzzy matched OF project to Toggl project:', toggleProject.name, '(id:', toggleProject.id + ')');
+					}
 				}
 			}
 
@@ -117,6 +140,11 @@
 			} else {
 				pid = toggleProject.id;
 				workspaceId = toggleProject.workspace_id;
+			}
+
+			// Store Toggl project ID in OF project note for future fast matching
+			if (pid != null && ofProject && ofProject.note !== undefined) {
+				writeTogglProjectIdToNote(ofProject, pid);
 			}
 
 			// Task resolution: attach time entry to Toggl task (SAFE-01 gated)

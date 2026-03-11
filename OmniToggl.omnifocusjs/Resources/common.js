@@ -94,30 +94,37 @@
 		throw lastError;
 	}
 
+	// OmniFocus auto-detects digit sequences as phone numbers and injects
+	// <tel:NNN> tags into note text, corrupting our markers. Strip them
+	// before any read/compare so the code sees clean text.
+	function stripTelTags(text) {
+		return text.replace(/<\/?tel:[^>]*>/g, '').replace(/ {2,}/g, ' ');
+	}
+
 	// Note registry: stores Toggl task IDs in OF task notes
-	// Format: [toggl-task:#N] — # prefix prevents OF phone number auto-linking
-	// Legacy format: <!-- toggl-task:N --> (corrupted by OF <tel:> injection)
+	// Format: [toggl-task:#N]
+	// Legacy format: <!-- toggl-task:N -->
+	// Both formats get <tel:> tags injected by OF — stripped before matching
 	const TOGGL_ID_PATTERN = /\[toggl-task:#(\d+)\]/;
-	const LEGACY_TASK_PATTERN = /<!--\s*toggl-task:(?:#)?\d+[^\n]*-->/g;
 
 	function readTogglIdFromNote(ofTask) {
-		const note = ofTask.note || '';
-		// Try current format first
+		const note = stripTelTags(ofTask.note || '');
 		const match = note.match(TOGGL_ID_PATTERN);
 		if (match) return parseInt(match[1], 10);
-		// Fall back to legacy format (may be corrupted with <tel:> tags)
-		const legacyMatch = note.match(/<!-- toggl-task:(\d+)/);
+		// Fall back to legacy HTML comment format
+		const legacyMatch = note.match(/<!-- toggl-task:(?:#)?(\d+)/);
 		return legacyMatch ? parseInt(legacyMatch[1], 10) : null;
 	}
 
 	function writeTogglIdToNote(ofTask, togglTaskId) {
 		const marker = `[toggl-task:#${togglTaskId}]`;
-		const existingNote = ofTask.note || '';
+		// Strip <tel:> corruption before comparing
+		const cleanNote = stripTelTags(ofTask.note || '');
 		// Same ID already present — no-op
-		if (existingNote.includes(marker)) return;
-		// Remove ALL existing markers: current format, legacy format, and corrupted variants
-		const cleaned = existingNote
-			.replace(/\[toggl-task:#\d+\]/g, '')
+		if (cleanNote.includes(marker)) return;
+		// Remove ALL existing markers (current + legacy + corrupted)
+		const cleaned = cleanNote
+			.replace(/\[toggl-task:#\d+[^\]\n]*\]/g, '')
 			.replace(/<!--\s*toggl-task:(?:#)?\d+[^\n]*-->/g, '')
 			.replace(/\n{2,}/g, '\n')
 			.trim();
@@ -126,22 +133,21 @@
 
 	// Project registry: stores Toggl project IDs in OF project notes
 	const TOGGL_PROJECT_ID_PATTERN = /\[toggl-project:#(\d+)\]/;
-	const LEGACY_PROJECT_PATTERN = /<!--\s*toggl-project:(?:#)?\d+[^\n]*-->/g;
 
 	function readTogglProjectIdFromNote(ofProject) {
-		const note = ofProject.note || '';
+		const note = stripTelTags(ofProject.note || '');
 		const match = note.match(TOGGL_PROJECT_ID_PATTERN);
 		if (match) return parseInt(match[1], 10);
-		const legacyMatch = note.match(/<!-- toggl-project:(\d+)/);
+		const legacyMatch = note.match(/<!-- toggl-project:(?:#)?(\d+)/);
 		return legacyMatch ? parseInt(legacyMatch[1], 10) : null;
 	}
 
 	function writeTogglProjectIdToNote(ofProject, togglProjectId) {
 		const marker = `[toggl-project:#${togglProjectId}]`;
-		const existingNote = ofProject.note || '';
-		if (existingNote.includes(marker)) return;
-		const cleaned = existingNote
-			.replace(/\[toggl-project:#\d+\]/g, '')
+		const cleanNote = stripTelTags(ofProject.note || '');
+		if (cleanNote.includes(marker)) return;
+		const cleaned = cleanNote
+			.replace(/\[toggl-project:#\d+[^\]\n]*\]/g, '')
 			.replace(/<!--\s*toggl-project:(?:#)?\d+[^\n]*-->/g, '')
 			.replace(/\n{2,}/g, '\n')
 			.trim();
